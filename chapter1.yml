@@ -307,7 +307,11 @@ Resources:
   rtPublicPeer:
     Type: AWS::EC2::Route
     Properties:
+<<<<<<< HEAD
       DestinationCidrBlock: !Ref OPVPCCIDR
+=======
+      DestinationCidrBlock: !Ref OPVpcCIDR
+>>>>>>> 6ddaf9c1c8b20c35eb78c692abbd133c1dce2df1
       RouteTableId: !Ref  rtPublic
       VpcPeeringConnectionId: !Ref  VPCPeer
 
