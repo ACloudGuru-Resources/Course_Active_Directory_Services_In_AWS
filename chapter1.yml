@@ -5,68 +5,110 @@ Description: Active Directory Services in AWS Base Networking
 Parameters:
 
 #Pre-created KeyPair
-
-  KeyName:
-    Description: Name of an existing EC2 KeyPair to decrypt the default Windows Administrator Password
-    Type: AWS::EC2::KeyPair::KeyName
-    Default: ACG
-    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+  #
+  # KeyName:
+  #   Description: Name of an existing EC2 KeyPair to decrypt the default Windows Administrator Password
+  #   Type: AWS::EC2::KeyPair::KeyName
+  #   Default: ACG
+  #   ConstraintDescription: Must be the name of an existing EC2 KeyPair.
 
 ## Parameters for the Main VPC
 
   MainVPCCIDR:
-    Description: Main VPC CIDR range
+    Description: "/16 Network recommended"
     Type: String
     Default: 10.1.0.0/16
 
   PrivateSubnetAZ1CIDR:
-    Description: "Main Private Subnet AZ1 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.1.10.0/24
 
   PrivateSubnetAZ2CIDR:
-    Description: "Main Private Subnet AZ2 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.1.11.0/24
 
   PublicSubnetAZ1CIDR:
-    Description: "Main Public Subnet AZ1 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.1.110.0/24
 
   PublicSubnetAZ2CIDR:
-    Description: "Main Public Subnet AZ2 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.1.111.0/24
 
 ## Paremeters for the on-prem VPC
 
   OPVPCCIDR:
-    Description: On-Prem VPC CIDR range
+    Description: "/16 Network recommended, different from Main VPC CIDR"
     Type: String
     Default: 10.2.0.0/16
 
   OPPrivateSubnetAZ1CIDR:
-    Description: "On-Prem Private Subnet AZ1 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.2.10.0/24
 
   OPPrivateSubnetAZ2CIDR:
-    Description: "On-Prem Private Subnet AZ2 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.2.11.0/24
 
   OPPublicSubnetAZ1CIDR:
-    Description: "On-Prem Public Subnet AZ1 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.2.110.0/24
 
   OPPublicSubnetAZ2CIDR:
-    Description: "On-Prem Public Subnet AZ2 CIDR Range "
+    Description: "Unique /24 within the VPC CIDR"
     Type: String
     Default: 10.2.111.0/24
 
 
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Main VPC Network Configuration"
+        Parameters:
+          - MainVPCCIDR
+          - PrivateSubnetAZ1CIDR
+          - PrivateSubnetAZ2CIDR
+          - PublicSubnetAZ1CIDR
+          - PublicSubnetAZ2CIDR
+      -
+        Label:
+          default: "On-Prem VPC Network Configuration"
+        Parameters:
+          - OPVPCCIDR
+          - OPPrivateSubnetAZ1CIDR
+          - OPPrivateSubnetAZ2CIDR
+          - OPPublicSubnetAZ1CIDR
+          - OPPublicSubnetAZ2CIDR
+    ParameterLabels:
+      MainVPCCIDR:
+        default: "Main VPC CIDR"
+      OPVPCCIDR:
+        default: "On-Prem VPC CIDR"
+      PrivateSubnetAZ1CIDR:
+        default: "Private Subnet 1 CIDR"
+      PrivateSubnetAZ2CIDR:
+        default: "Private Subnet 2 CIDR"
+      PublicSubnetAZ1CIDR:
+        default: "Public Subnet 1 CIDR"
+      PublicSubnetAZ2CIDR:
+        default: "Public Subnet 2 CIDR"
+      OPPrivateSubnetAZ1CIDR:
+        default: "Private Subnet 1 CIDR"
+      OPPrivateSubnetAZ2CIDR:
+        default: "Private Subnet 2 CIDR"
+      OPPublicSubnetAZ1CIDR:
+        default: "Public Subnet 1 CIDR"
+      OPPublicSubnetAZ2CIDR:
+        default: "Public Subnet 2 CIDR"
 Resources:
 
 
@@ -265,7 +307,7 @@ Resources:
   rtPublicPeer:
     Type: AWS::EC2::Route
     Properties:
-      DestinationCidrBlock: !Ref OPVpcCIDR
+      DestinationCidrBlock: !Ref OPVPCCIDR
       RouteTableId: !Ref  rtPublic
       VpcPeeringConnectionId: !Ref  VPCPeer
 
@@ -292,8 +334,8 @@ Resources:
   rtPrivatePeer:
     Type: AWS::EC2::Route
     Properties:
-      DestinationCidrBlock: !Ref OPVpcCIDR
-      RouteTableId: !Ref  rtPr
+      DestinationCidrBlock: !Ref OPVPCCIDR
+      RouteTableId: !Ref  rtPrivate
       VpcPeeringConnectionId: !Ref  VPCPeer
 
   PublicAcl:
@@ -396,7 +438,7 @@ Resources:
         !Ref  OPVPC
 
 
-  OPOPPrivateSubnetAZ1:
+  OPPrivateSubnetAZ1:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
@@ -431,7 +473,7 @@ Resources:
         !Ref  OPPublicSubnetAZ1CIDR
       AvailabilityZone:
         !Select ['0', !GetAZs ]
-      MapOPPublicIpOnLaunch: True
+      MapPublicIpOnLaunch: True
       Tags:
       - Key: Name
         Value: !Join [ ' ', ['OP VPC', 'OPPublic Subnet AZ1' ]]
@@ -445,7 +487,7 @@ Resources:
         !Ref  OPPublicSubnetAZ2CIDR
       AvailabilityZone:
         !Select ['1', !GetAZs ]
-      MapOPPublicIpOnLaunch: True
+      MapPublicIpOnLaunch: True
       Tags:
       - Key: Name
         Value: !Join [ ' ', ['OP VPC', 'OPPublic Subnet AZ2' ]]
@@ -492,7 +534,7 @@ Resources:
     Properties:
       DestinationCidrBlock: 0.0.0.0/0
       RouteTableId: !Ref  rtOPPublic
-      GatewayId: !Ref  ACGGateway
+      GatewayId: !Ref  OPGateway
 
   rtOPPublicPeer:
     Type: AWS::EC2::Route
