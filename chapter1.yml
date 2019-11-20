@@ -1,0 +1,755 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Active Directory Services in AWS Base Networking
+
+Parameters:
+
+#Pre-created KeyPair
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to decrypt the default Windows Administrator Password
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ACG
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+## Parameters for the Main VPC
+
+  MainVPCCIDR:
+    Description: Main VPC CIDR range
+    Type: String
+    Default: 10.1.0.0/16
+
+  PrivateSubnetAZ1CIDR:
+    Description: "Main Private Subnet AZ1 CIDR Range "
+    Type: String
+    Default: 10.1.10.0/24
+
+  PrivateSubnetAZ2CIDR:
+    Description: "Main Private Subnet AZ2 CIDR Range "
+    Type: String
+    Default: 10.1.11.0/24
+
+  PublicSubnetAZ1CIDR:
+    Description: "Main Public Subnet AZ1 CIDR Range "
+    Type: String
+    Default: 10.1.110.0/24
+
+  PublicSubnetAZ2CIDR:
+    Description: "Main Public Subnet AZ2 CIDR Range "
+    Type: String
+    Default: 10.1.111.0/24
+
+## Paremeters for the on-prem VPC
+
+  OPVPCCIDR:
+    Description: On-Prem VPC CIDR range
+    Type: String
+    Default: 10.2.0.0/16
+
+  OPPrivateSubnetAZ1CIDR:
+    Description: "On-Prem Private Subnet AZ1 CIDR Range "
+    Type: String
+    Default: 10.2.10.0/24
+
+  OPPrivateSubnetAZ2CIDR:
+    Description: "On-Prem Private Subnet AZ2 CIDR Range "
+    Type: String
+    Default: 10.2.11.0/24
+
+  OPPublicSubnetAZ1CIDR:
+    Description: "On-Prem Public Subnet AZ1 CIDR Range "
+    Type: String
+    Default: 10.2.110.0/24
+
+  OPPublicSubnetAZ2CIDR:
+    Description: "On-Prem Public Subnet AZ2 CIDR Range "
+    Type: String
+    Default: 10.2.111.0/24
+
+
+Resources:
+
+
+## EC2 Role for Seamless Domain Join
+
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        -
+          PolicyName: "CloudWatchPublish"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action:
+                  - cloudformation:Describe*
+                Resource: "*"
+
+  EC2RoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref  EC2Role
+
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref MainVPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value:  'Main VPC'
+
+  OPVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref OPVPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value:  'On-Prem VPC'
+
+  VPCPeer:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      PeerVpcId: !Ref MainVPC
+      Tags:
+      - Key: Name
+        Value:  'On-Prem to Main VPC Peer'
+      VpcId: !Ref OPVPC
+
+
+## Main VPC Network Setup
+
+
+
+  ACGGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Internet Gateway' ]]
+
+
+  ACGGatewayAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        !Ref  ACGGateway
+      VpcId:
+        !Ref  MainVPC
+
+
+  PrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  MainVPC
+      CidrBlock:
+        !Ref  PrivateSubnetAZ1CIDR
+      AvailabilityZone:
+        !Select ['0', !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Private Subnet AZ1'] ]
+
+  PrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  MainVPC
+      CidrBlock:
+        !Ref  PrivateSubnetAZ2CIDR
+      AvailabilityZone:
+        !Select ['1', !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Private Subnet AZ2'] ]
+
+  PublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  MainVPC
+      CidrBlock:
+        !Ref  PublicSubnetAZ1CIDR
+      AvailabilityZone:
+        !Select ['0', !GetAZs ]
+      MapPublicIpOnLaunch: True
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Public Subnet AZ1' ]]
+
+  PublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  MainVPC
+      CidrBlock:
+        !Ref  PublicSubnetAZ2CIDR
+      AvailabilityZone:
+        !Select ['1', !GetAZs ]
+      MapPublicIpOnLaunch: True
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Public Subnet AZ2' ]]
+
+
+
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public Security Group
+      VpcId: !Ref  MainVPC
+      SecurityGroupIngress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Public SG' ]]
+
+  rtPublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref  MainVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ',[ 'Main VPC', 'Public Public Route'] ]
+
+  rtPublicAssocAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtPublic
+      SubnetId: !Ref  PublicSubnetAZ1
+
+  rtPublicAssocAZ2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtPublic
+      SubnetId: !Ref  PublicSubnetAZ2
+
+  rtPublicInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref  rtPublic
+      GatewayId: !Ref  ACGGateway
+
+  rtPublicPeer:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: !Ref OPVpcCIDR
+      RouteTableId: !Ref  rtPublic
+      VpcPeeringConnectionId: !Ref  VPCPeer
+
+  rtPrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref  MainVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Private Public Route' ]]
+
+  rtPrivateAssocAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtPrivate
+      SubnetId: !Ref  PrivateSubnetAZ1
+
+  rtPrivateAssocAZ2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtPrivate
+      SubnetId: !Ref  PrivateSubnetAZ2
+
+  rtPrivatePeer:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: !Ref OPVpcCIDR
+      RouteTableId: !Ref  rtPr
+      VpcPeeringConnectionId: !Ref  VPCPeer
+
+  PublicAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref  MainVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Public ACL' ]]
+
+  PublicAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  PublicAcl
+      SubnetId: !Ref  PublicSubnetAZ1
+
+  PublicAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  PublicAcl
+      SubnetId: !Ref  PublicSubnetAZ2
+
+  PublicAclAllowTCPEgress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  PublicAcl
+
+  PublicAllowAllIngress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  PublicAcl
+
+
+  PrivateAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref  MainVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['Main VPC', 'Private ACL'] ]
+
+  PrivateAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  PrivateAcl
+      SubnetId: !Ref  PrivateSubnetAZ1
+
+  PrivateAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  PrivateAcl
+      SubnetId: !Ref  PrivateSubnetAZ2
+
+  PrivateAclAllowTCPEgress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  PrivateAcl
+
+  PrivateAllowAllIngress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  PrivateAcl
+
+
+## On-Premise VPC Network Setup
+
+
+  OPGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'Internet Gateway' ]]
+
+
+  OPGatewayAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        !Ref  OPGateway
+      VpcId:
+        !Ref  OPVPC
+
+
+  OPOPPrivateSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  OPVPC
+      CidrBlock:
+        !Ref  OPPrivateSubnetAZ1CIDR
+      AvailabilityZone:
+        !Select ['0', !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPrivate Subnet AZ1'] ]
+
+  OPPrivateSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  OPVPC
+      CidrBlock:
+        !Ref  OPPrivateSubnetAZ2CIDR
+      AvailabilityZone:
+        !Select ['1', !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPrivate Subnet AZ2'] ]
+
+  OPPublicSubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  OPVPC
+      CidrBlock:
+        !Ref  OPPublicSubnetAZ1CIDR
+      AvailabilityZone:
+        !Select ['0', !GetAZs ]
+      MapOPPublicIpOnLaunch: True
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPublic Subnet AZ1' ]]
+
+  OPPublicSubnetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        !Ref  OPVPC
+      CidrBlock:
+        !Ref  OPPublicSubnetAZ2CIDR
+      AvailabilityZone:
+        !Select ['1', !GetAZs ]
+      MapOPPublicIpOnLaunch: True
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPublic Subnet AZ2' ]]
+
+
+
+  OPPublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OPPublic Security Group
+      VpcId: !Ref  OPVPC
+      SecurityGroupIngress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: "-1"
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPublic SG' ]]
+
+  rtOPPublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref  OPVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ',[ 'OP VPC', 'OPPublic Route'] ]
+
+  rtOPPublicAssocAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtOPPublic
+      SubnetId: !Ref  OPPublicSubnetAZ1
+
+  rtOPPublicAssocAZ2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtOPPublic
+      SubnetId: !Ref  OPPublicSubnetAZ2
+
+  rtOPPublicInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref  rtOPPublic
+      GatewayId: !Ref  ACGGateway
+
+  rtOPPublicPeer:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: !Ref MainVPCCIDR
+      RouteTableId: !Ref  rtOPPublic
+      VpcPeeringConnectionId: !Ref  VPCPeer
+
+  rtOPPrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref  OPVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPrivate  Route' ]]
+
+  rtOPPrivatePeer:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: !Ref MainVPCCIDR
+      RouteTableId: !Ref  rtOPPrivate
+      VpcPeeringConnectionId: !Ref  VPCPeer
+
+  rtOPPrivateAssocAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtOPPrivate
+      SubnetId: !Ref  OPPrivateSubnetAZ1
+
+  rtOPPrivateAssocAZ2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  rtOPPrivate
+      SubnetId: !Ref  OPPrivateSubnetAZ2
+
+  OPPublicAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref  OPVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPublic ACL' ]]
+
+  OPPublicAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  OPPublicAcl
+      SubnetId: !Ref  OPPublicSubnetAZ1
+
+  OPPublicAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  OPPublicAcl
+      SubnetId: !Ref  OPPublicSubnetAZ2
+
+  OPPublicAclAllowTCPEgress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  OPPublicAcl
+
+  OPPublicAllowAllIngress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  OPPublicAcl
+
+
+  OPPrivateAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref  OPVPC
+      Tags:
+      - Key: Name
+        Value: !Join [ ' ', ['OP VPC', 'OPPrivate ACL'] ]
+
+  OPPrivateAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  OPPrivateAcl
+      SubnetId: !Ref  OPPrivateSubnetAZ1
+
+  OPPrivateAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref  OPPrivateAcl
+      SubnetId: !Ref  OPPrivateSubnetAZ2
+
+  OPPrivateAclAllowTCPEgress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  OPPrivateAcl
+
+  OPPrivateAllowAllIngress:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Protocol: "-1"
+      RuleAction: allow
+      RuleNumber: '200'
+      NetworkAclId: !Ref  OPPrivateAcl
+
+
+
+Outputs:
+
+
+  MainVpcId:
+    Description: Main VPC ID
+    Value: !Ref  MainVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-VPCID"
+
+  GatewayID:
+    Description: Internet Gateway ID
+    Value: !Ref  ACGGateway
+    Export:
+      Name: !Sub "${AWS::StackName}-InternetGateway"
+
+
+  MainVpcCIDR:
+    Description: Main VPC CIDR range
+    Value: !Ref  MainVPCCIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-VPC-CIDR"
+
+  MainPrivateSubnetAZ1:
+    Description: Main Private Prod SubnetAZ1
+    Value: !Ref  PrivateSubnetAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Private-Subnet-AZ1"
+
+  MainPrivateSubnetAZ2:
+    Description: Main Private Prod SubnetAZ2
+    Value: !Ref  PrivateSubnetAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Private-Subnet-AZ2"
+
+  MainPrivateSubnetAZ1CIDR:
+    Description: Main PrivateSubnetAZ1CIDR
+    Value: !Ref  PrivateSubnetAZ1CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Private-AZ1-CIDR"
+
+  MainPrivateSubnetAZ2CIDR:
+    Description: Main PrivateSubnetAZ2CIDR
+    Value: !Ref  PrivateSubnetAZ2CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Private-AZ2-CIDR"
+
+  MainPublicSubnetAZ1:
+    Description: Main PublicSubnetAZ1
+    Value: !Ref  PublicSubnetAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Public-Subnet-AZ1"
+
+  MainPublicSubnetAZ2:
+    Description: Main PublicSubnetAZ2
+    Value: !Ref  PublicSubnetAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Public-Subnet-AZ2"
+
+  MainPublicSubnetAZ1CIDR:
+    Description: Main PublicSubnetAZ1CIDR
+    Value: !Ref  PublicSubnetAZ1CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Public-Subnet-AZ1-CIDR"
+
+  MainPublicSubnetAZ2CIDR:
+    Description: Main PublicSubnetAZ2CIDR
+    Value: !Ref  PublicSubnetAZ2CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Public-Subnet-AZ2-CIDR"
+
+  MainPublicSecurityGroup:
+    Description: Main Public Security Group
+    Value:
+      !Ref  PublicSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-Main-Public-SG"
+
+
+  OPVpcId:
+    Description: OP VPC ID
+    Value: !Ref  OPVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-VPCID"
+
+  OPVpcCIDR:
+    Description: OP VPC CIDR range
+    Value: !Ref  OPVPCCIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-VPC-CIDR"
+
+  OPPrivateSubnetAZ1:
+    Description: OP OPPrivate Prod SubnetAZ1
+    Value: !Ref  OPPrivateSubnetAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Private-Subnet-AZ1"
+
+  OPPrivateSubnetAZ2:
+    Description: OP OPPrivate Prod SubnetAZ2
+    Value: !Ref  OPPrivateSubnetAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Private-Subnet-AZ2"
+
+  OPPrivateSubnetAZ1CIDR:
+    Description: OP OPPrivateSubnetAZ1CIDR
+    Value: !Ref  OPPrivateSubnetAZ1CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Private-AZ1-CIDR"
+
+  OPPrivateSubnetAZ2CIDR:
+    Description: OP OPPrivateSubnetAZ2CIDR
+    Value: !Ref  OPPrivateSubnetAZ2CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Private-AZ2-CIDR"
+
+  OPPublicSubnetAZ1:
+    Description: OP OPPublicSubnetAZ1
+    Value: !Ref  OPPublicSubnetAZ1
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Public-Subnet-AZ1"
+
+  OPPublicSubnetAZ2:
+    Description: OP OPPublicSubnetAZ2
+    Value: !Ref  OPPublicSubnetAZ2
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Public-Subnet-AZ2"
+
+  OPPublicSubnetAZ1CIDR:
+    Description: OP OPPublicSubnetAZ1CIDR
+    Value: !Ref  OPPublicSubnetAZ1CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Public-Subnet-AZ1-CIDR"
+
+  OPPublicSubnetAZ2CIDR:
+    Description: OP OPPublicSubnetAZ2CIDR
+    Value: !Ref  OPPublicSubnetAZ2CIDR
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Public-Subnet-AZ2-CIDR"
+
+  OPPublicSecurityGroup:
+    Description: OP OPPublic Security Group
+    Value:
+      !Ref  OPPublicSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-OP-Public-SG"
