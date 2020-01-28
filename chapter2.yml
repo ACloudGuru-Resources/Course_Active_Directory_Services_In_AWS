@@ -1,0 +1,305 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Chapter 2 Domain Contoller Setup Template
+
+Parameters:
+
+  Prefix:
+    Description: "Environment Naming Prefix"
+    Type: String
+    Default: OnPrem
+
+  DomainDNSName:
+    Description: "Fully qualified domain name (FQDN) of the forest root domain"
+    AllowedPattern: '[a-zA-Z0-9\-]+\..+'
+    MaxLength: '50'
+    MinLength: '3'
+    Type: String
+    Default: acg-onprem.local
+
+  DomainNetBiosName:
+    Description: "Netbios name for the domain"
+    AllowedPattern: '[a-zA-Z0-9\-]+'
+    MaxLength: '15'
+    MinLength: '3'
+    Type: String
+    Default: onprem
+
+  DomainAdminUser:
+    Description: "User name for the account that will be added as Domain Administrator. This is separate from the default Administrator account"
+    AllowedPattern: '[a-zA-Z0-9]*'
+    MaxLength: '25'
+    MinLength: '5'
+    Type: String
+    Default: "OnPremAdmin"
+
+  DomainAdminPassword:
+    AllowedPattern: (?=^.{6,255}$)((?=.*\d)(?=.*[A-Z])(?=.*[a-z])|(?=.*\d)(?=.*[^A-Za-z0-9])(?=.*[a-z])|(?=.*[^A-Za-z0-9])(?=.*[A-Z])(?=.*[a-z])|(?=.*\d)(?=.*[A-Z])(?=.*[^A-Za-z0-9]))^.*
+    Description: Password for the domain admin user. Must be at least 8 characters containing letters, numbers and symbols
+    MaxLength: '32'
+    MinLength: '8'
+    Type: String
+    NoEcho: true
+
+  NodeName:
+    Description: "EC2 Instance Node Name"
+    Type: String
+    Default: DC
+
+  NodeNumber01:
+    Description: "First Domain Domain Controller Instance Node Number"
+    Type: String
+    Default: "01"
+
+  VPCStackName:
+    Description: "CloudFormation Network Stack Name"
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+    Default: "ACG-Network"
+
+
+#Pre-created KeyPair
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to decrypt the default Windows Administrator Password
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ACG
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+
+  DCInstanceType:
+    Description: Domain Controller EC2 instance type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+    - t2.micro
+    - t3.micro
+    - t3.large
+
+  WS2016FULLBASE:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-windows-latest/Windows_Server-2016-English-Full-Base'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Domain Configuration"
+        Parameters:
+          - DomainDNSName
+          - DomainNetBiosName
+          - DomainAdminUser
+          - DomainAdminPassword
+      -
+        Label:
+          default: "Existing and Defaults Setup"
+        Parameters:
+          - Prefix
+          - NodeName
+          - NodeNumber01
+          - VPCStackName
+          - KeyName
+          - DCInstanceType
+          - WS2016FULLBASE
+
+    ParameterLabels:
+      Prefix:
+        default: "Resouces Naming Prefix"
+      NodeName:
+        default: "Instance Node Name"
+      NodeNumber01:
+        default: "Instance Node Number"
+      VPCStackName:
+        default: "Stack name from Chapter 1 Lab"
+      KeyName:
+        default: "Previously Generated KeyPair Name"
+      DCInstanceType:
+        default: "Instance Type"
+      WS2016FULLBASE:
+        default: "Latest Windows AMI"
+      DomainDNSName:
+        default: "FQDN for Active Dictory Domain"
+      DomainNetBiosName:
+        default: "NetBIOS Active Directory Domain"
+      DomainAdminUser:
+        default: "New Domain Admin User"
+      DomainAdminPassword:
+        default: "New Domain Admin User's Password"
+
+Resources:
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        -
+          PolicyName: "GetS3Objects"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: "*"
+        -
+          PolicyName: "CloudWatchPublish"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action:
+                  - cloudformation:Describe*
+                Resource: "*"
+
+  EC2RoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - !Ref  EC2Role
+
+  DCInstance01:
+    Type: AWS::EC2::Instance
+    DependsOn: EC2RoleInstanceProfile
+    Properties:
+      InstanceType:
+        Ref: DCInstanceType
+      IamInstanceProfile:
+        Ref: EC2RoleInstanceProfile
+      KeyName:
+        Ref: KeyName
+      EbsOptimized: false
+      ImageId: !Ref 'WS2016FULLBASE'
+      DisableApiTermination: false
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeType: gp2
+          DeleteOnTermination: 'true'
+          VolumeSize: '30'
+      NetworkInterfaces:
+      - DeleteOnTermination: true
+        Description: Main interface
+        DeviceIndex: '0'
+        GroupSet:
+          - Fn::ImportValue:
+              !Sub "${VPCStackName}-OP-Public-SG"
+        SubnetId:
+          Fn::ImportValue:
+              !Sub "${VPCStackName}-OP-Public-Subnet-AZ1"
+      Tags:
+      - Key: Name
+        Value:  !Join [ '',[ !Ref Prefix, !Ref NodeName, !Ref NodeNumber01 ] ]
+
+      UserData:
+        Fn::Base64:
+          !Sub |
+          <powershell>
+          cfn-init -v -s ${AWS::StackName} -r DCInstance01 --region=${AWS::Region} --role=${EC2Role}
+          </powershell>
+    Metadata:
+      AWS::CloudFormation::Init:
+
+        configSets:
+          default:
+            - "adprep"
+            - "adinstall"
+
+
+        adprep:
+          files:
+            c:\\cfn\\scripts\\rename.ps1:
+              content: !Sub |
+                $prefix = "${Prefix}"
+                $node =  "${NodeName}"
+                $nodeNumber1 = "${NodeNumber01}"
+                $computerName =   $prefix + $node + $nodeNumber1
+                Rename-Computer -NewName $computerName
+
+          commands:
+            a-run-Rename-Script:
+              command: "powershell.exe -Command c:\\cfn\\scripts\\rename.ps1"
+              waitAfterCompletion: '60'
+            b-disable-Windows-Firewall:
+              command: "powershell.exe -ExecutionPolicy RemoteSigned -Command \"Get-NetFirewallProfile | Set-NetFirewallProfile -Enabled False\" "
+              waitAfterCompletion: '5'
+            z-run-powershell-restart:
+              command: "powershell.exe -Command Restart-Computer "
+              waitAfterCompletion: 'forever'
+
+        adinstall:
+          files:
+            c:\\cfn\\scripts\\staticIP.ps1:
+              content: !Sub |
+                $ip = Get-NetIPConfiguration
+                $ipconfig = Get-NetIPAddress | ?{$_.IpAddress -eq $ip.IPv4Address.IpAddress}
+                Get-NetAdapter | Set-NetIPInterface -DHCP Disabled
+                Get-NetAdapter | New-NetIPAddress -AddressFamily IPv4 -IPAddress $ip.IPv4Address.IpAddress -PrefixLength $ipconfig.PrefixLength -DefaultGateway $ip.IPv4DefaultGateway.NextHop
+                Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses $ip.DNSServer.ServerAddresses
+
+            c:\\cfn\\scripts\\ADinstall.ps1:
+              content: !Sub |
+                Install-WindowsFeature AD-Domain-Services, rsat-adds -IncludeAllSubFeature
+
+            c:\\cfn\\scripts\\ADConfigure.ps1:
+              content: !Sub |
+                Install-ADDSForest -DomainName "${DomainDNSName}" -SafeModeAdministratorPassword (ConvertTo-SecureString '${DomainAdminPassword}' -AsPlainText -Force) -DomainMode Win2012R2 -DomainNetbiosName ${DomainNetBiosName} -ForestMode Win2012R2 -Confirm:$false -Force
+
+            c:\\cfn\\scripts\\ADadmin.ps1:
+              content: !Sub |
+                 $s = Get-Service -Name ADWS
+                 while ($s.Status -ne 'Running'){ Start-Service ADWS; Start-Sleep 3 }
+                 Start-Sleep 60
+                 $u = New-ADUser -Server localhost -Name ${DomainAdminUser} -UserPrincipalName ${DomainAdminUser}@${DomainDNSName} -AccountPassword (ConvertTo-SecureString '${DomainAdminPassword}' -AsPlainText -Force) -Enabled $true -PasswordNeverExpires $true -PassThru
+
+            c:\\cfn\\scripts\\ConvertTo-EnterpriseAdmin.ps1:
+                source: "https://raw.githubusercontent.com/aws-quickstart/quickstart-microsoft-activedirectory/master/scripts/archive/ConvertTo-EnterpriseAdmin.ps1"
+
+          commands:
+            a-run-staticIP-Script:
+              command: "powershell.exe -ExecutionPolicy RemoteSigned -Command c:\\cfn\\scripts\\staticIP.ps1"
+              waitAfterCompletion: '60'
+            b-run-ADInstall-Script:
+              command: "powershell.exe -Command c:\\cfn\\scripts\\ADinstall.ps1"
+              waitAfterCompletion: '60'
+            c-run-ADConfig-Script:
+              command: "powershell.exe -Command c:\\cfn\\scripts\\ADConfigure.ps1"
+              waitAfterCompletion: 'forever'
+            d-create-Admin-User:
+              command: "powershell.exe -Command c:\\cfn\\scripts\\ADadmin.ps1"
+              waitAfterCompletion: '60'
+            e-promote-Admin-User:
+              command: !Sub |
+                powershell.exe -ExecutionPolicy RemoteSigned -Command c:\\cfn\\scripts\\ConvertTo-EnterpriseAdmin.ps1 -Members ${DomainAdminUser}
+              waitAfterCompletion: '0'
+Outputs:
+
+
+  DCIP:
+    Description: Domain Controller IP
+    Value:
+      !GetAtt DCInstance01.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-DCIP"
